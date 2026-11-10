@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <!-- Mobil ve masaüstü tarayıcı yakınlaştırmalarını engelleyen viewport -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Atomik Parçacık Fiziği Hesaplayıcı & 3D Simülatör</title>
+    
+    <!-- Google Fonts & Three.js CDN -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        /* ==========================================================================
+           TEMA DEĞİŞKENLERİ: VARSAYILAN AYDINLIK (LIGHT) TEMA
+           ========================================================================== */
+        :root {
+            --bg-base: #f0f3f8;
+            --bg-canvas: 0xf0f3f8;
+            --bg-panel: rgba(255, 255, 255, 0.86);
+            --border-glow: rgba(0, 119, 182, 0.22);
+            --accent-cyan: #0077b6;
+            --accent-magenta: #d90429;
+            --accent-amber: #d97706;
+            --accent-green: #059669;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --shadow-panel: 0 12px 36px rgba(15, 23, 42, 0.08);
+            --card-inner: rgba(15, 23, 42, 0.035);
+            --font-code: 'JetBrains Mono', monospace;
+            --font-ui: 'Space Grotesk', sans-serif;
+        }
+
+        /* İsteğe bağlı Karanlık Tema desteği */
+        body.theme-dark {
+            --bg-base: #07090e;
+            --bg-canvas: 0x07090e;
+            --bg-panel: rgba(13, 17, 27, 0.85);
+            --border-glow: rgba(0, 240, 255, 0.25);
+            --accent-cyan: #00f0ff;
+            --accent-magenta: #ff0055;
+            --accent-amber: #ffaa00;
+            --accent-green: #00ffaa;
+            --text-main: #e2e8f0;
+            --text-muted: #8492a6;
+            --shadow-panel: 0 12px 40px rgba(0,0,0,0.6);
+            --card-inner: rgba(255, 255, 255, 0.04);
+        }
+
+        /* ==========================================================================
+           EKRAN SABİTLEME & DOKUNMATİK/KAYDIRMA KİLİTLERİ (OVERSCROLL PREVENT)
+           ========================================================================== */
+        html, body {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            overflow: hidden !important;
+            touch-action: none !important; /* Tarayıcının çimdikleyerek veya sürükleyerek sayfayı yakınlaştırmasını önler */
+            overscroll-behavior: none !important; /* Sayfa sonu elastik zıplamayı kilitler */
+            -webkit-user-select: none;
+            user-select: none;
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            font-family: var(--font-ui);
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        #webgl-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            display: block;
+            touch-action: none;
+        }
+
+        /* ==========================================================================
+           SABİT ÜST KONTROL ÇUBUĞU & MENÜ AÇ/KAPA DÜĞMESİ
+           ========================================================================== */
+        #top-action-bar {
+            position: absolute;
+            top: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 99;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            pointer-events: auto;
+        }
+
+        .action-pill-btn {
+            background: var(--bg-panel);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid var(--border-glow);
+            color: var(--text-main);
+            font-family: var(--font-ui);
+            font-size: 0.82rem;
+            font-weight: 700;
+            padding: 8px 18px;
+            border-radius: 30px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+            transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        .action-pill-btn:hover {
+            transform: translateY(-2px);
+            border-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+            box-shadow: 0 6px 24px rgba(0, 119, 182, 0.2);
+        }
+
+        .action-pill-btn.active-glow {
+            background: var(--accent-cyan);
+            color: #fff;
+            border-color: var(--accent-cyan);
+        }
+
+        /* ==========================================================================
+           GİZLENEBİLİR ARAYÜZ ELEMANLARI (UI SHELL)
+           ========================================================================== */
+        .ui-shell {
+            transition: opacity 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), 
+                        transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+                        visibility 0.35s;
+            pointer-events: auto;
+        }
+
+        /* Menü Gizle aktif olduğunda tüm paneller kaybolur */
+        body.ui-hidden .ui-shell {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            visibility: hidden;
+            transform: translateY(12px) scale(0.98);
+        }
+
+        body.ui-hidden header.ui-shell {
+            transform: translateY(-20px);
+        }
+
+        /* Header / Başlık */
+        header {
+            position: absolute;
+            top: 16px;
+            left: 20px;
+            right: 20px;
+            z-index: 10;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            pointer-events: none;
+        }
+
+        .header-brand {
+            background: var(--bg-panel);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border-glow);
+            padding: 10px 20px;
+            border-radius: 12px;
+            pointer-events: auto;
+            box-shadow: var(--shadow-panel);
+        }
+
+        .header-brand h1 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+        }
+
+        .header-brand p {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            font-family: var(--font-code);
+            margin-top: 1px;
+        }
+
+        /* FPS Sayacı */
+        #fps-hud {
+            background: var(--bg-panel);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border-glow);
+            padding: 8px 16px;
+            border-radius: 12px;
+            pointer-events: auto;
+            font-family: var(--font-code);
+            font-size: 0.82rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: var(--shadow-panel);
+        }
+
+        .fps-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            box-shadow: 0 0 10px var(--accent-green);
+        }
+
+        /* Paneller */
+        .glass-panel {
+            background: var(--bg-panel);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border-glow);
+            border-radius: 14px;
+            box-shadow: var(--shadow-panel);
+            pointer-events: auto;
+        }
+
+        /* Sol Kenar Çubuğu */
+        #left-sidebar {
+            position: absolute;
+            top: 86px;
+            left: 20px;
+            bottom: 20px;
+            width: 360px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 16px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+        }
+
+        /* Sağ Kenar Çubuğu */
+        #right-sidebar {
+            position: absolute;
+            top: 86px;
+            right: 20px;
+            bottom: 20px;
+            width: 390px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 16px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+        }
+
+        .panel-title {
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px solid var(--border-glow);
+            padding-bottom: 6px;
+            margin-bottom: 6px;
+        }
+
+        /* Kontrol Elemanları */
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .control-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-family: var(--font-code);
+        }
+
+        .control-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 6px;
+            background: rgba(100, 116, 139, 0.2);
+            border-radius: 4px;
+            outline: none;
+        }
+
+        .control-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--accent-cyan);
+            cursor: pointer;
+            box-shadow: 0 0 8px rgba(0, 119, 182, 0.5);
+        }
+
+        .table-trigger-btn {
+            background: rgba(0, 119, 182, 0.08);
+            border: 1px solid var(--accent-cyan);
+            color: var(--accent-cyan);
+            padding: 10px;
+            border-radius: 8px;
+            font-family: var(--font-code);
+            font-size: 0.78rem;
+            cursor: pointer;
+            text-align: center;
+            font-weight: 700;
+            transition: all 0.2s ease;
+        }
+        .table-trigger-btn:hover {
+            background: var(--accent-cyan);
+            color: #fff;
+        }
+
+        .toggle-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+
+        .btn-mode {
+            background: var(--card-inner);
+            border: 1px solid var(--border-glow);
+            color: var(--text-muted);
+            padding: 8px 4px;
+            border-radius: 6px;
+            font-size: 0.72rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: 0.2s;
+        }
+        .btn-mode.active {
+            background: rgba(0, 119, 182, 0.15);
+            border-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+        }
+
+        /* Bilgi Kartları */
+        .metric-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .metric-card {
+            background: var(--card-inner);
+            border: 1px solid var(--border-glow);
+            border-radius: 8px;
+            padding: 9px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .metric-card.wide {
+            grid-column: span 2;
+        }
+
+        .metric-label {
+            font-size: 0.68rem;
+            color: var(--text-muted);
+            font-family: var(--font-code);
+            text-transform: uppercase;
+        }
+
+        .metric-val {
+            font-size: 1rem;
+            font-family: var(--font-code);
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .badge-stable { color: var(--accent-green) !important; }
+        .badge-decay { color: var(--accent-magenta) !important; }
+
+        .quark-container {
+            display: flex;
+            gap: 8px;
+        }
+        .quark-box {
+            flex: 1;
+            background: var(--card-inner);
+            border: 1px solid var(--border-glow);
+            padding: 8px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .viewport-hints {
+            position: absolute;
+            bottom: 18px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            background: var(--bg-panel);
+            backdrop-filter: blur(8px);
+            padding: 6px 18px;
+            border-radius: 20px;
+            border: 1px solid var(--border-glow);
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            pointer-events: none;
+            box-shadow: var(--shadow-panel);
+            white-space: nowrap;
+        }
+
+        /* Periyodik Tablo Modalı */
+        #ptable-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(12px);
+            z-index: 200;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            touch-action: auto;
+        }
+
+        #ptable-modal {
+            width: 95vw;
+            max-width: 1260px;
+            max-height: 88vh;
+            background: var(--bg-panel);
+            border: 1px solid var(--accent-cyan);
+            border-radius: 16px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+            overflow-y: auto;
+        }
+
+        #periodic-grid {
+            display: grid;
+            grid-template-columns: repeat(18, 1fr);
+            gap: 4px;
+            min-width: 900px;
+        }
+
+        .element-cell {
+            aspect-ratio: 1;
+            background: var(--card-inner);
+            border: 1px solid var(--border-glow);
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            position: relative;
+        }
+
+        .element-cell:hover {
+            transform: scale(1.15);
+            z-index: 20;
+            border-color: var(--accent-cyan);
+            background: var(--bg-base);
+            box-shadow: 0 4px 14px rgba(0, 119, 182, 0.3);
+        }
+
+        .element-cell .cell-z {
+            font-size: 0.55rem;
+            color: var(--text-muted);
+            position: absolute;
+            top: 2px;
+            left: 3px;
+            font-family: var(--font-code);
+        }
+
+        .element-cell .cell-symbol {
+            font-size: 0.88rem;
+            font-weight: 700;
+            font-family: var(--font-code);
+            color: var(--text-main);
+        }
+
+        .element-cell .cell-name {
+            font-size: 0.5rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 92%;
+        }
+
+        .cat-nonmetal { border-left: 3px solid #0077b6; }
+        .cat-noble { border-left: 3px solid #8338ec; }
+        .cat-alkali { border-left: 3px solid #d90429; }
+        .cat-alkaline { border-left: 3px solid #f77f00; }
+        .cat-metalloid { border-left: 3px solid #059669; }
+        .cat-halogen { border-left: 3px solid #eab308; }
+        .cat-transition { border-left: 3px solid #2563eb; }
+        .cat-post-transition { border-left: 3px solid #0d9488; }
+        .cat-lanthanide { border-left: 3px solid #c026d3; }
+        .cat-actinide { border-left: 3px solid #e11d48; }
+
+        .legend-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            font-size: 0.7rem;
+            font-family: var(--font-code);
+            padding-top: 8px;
+            border-top: 1px solid var(--border-glow);
+        }
+        .legend-item { display: flex; align-items: center; gap: 4px; }
+        .legend-color { width: 10px; height: 10px; border-radius: 2px; }
+    </style>
+</head>
+<body>
+
+    <!-- 3D WebGL Canvas (Dokunma kilitli) -->
+    <canvas id="webgl-canvas"></canvas>
+
+    <!-- Sabit Üst Aksiyon Çubuğu (Menü Aç/Kapat & Tema Değiştirici) -->
+    <div id="top-action-bar">
+        <button class="action-pill-btn" id="btn-toggle-ui" title="Kısayol: H">
+            <span id="ui-btn-icon">👁️</span>
+            <span id="ui-btn-text">Menüleri Gizle</span>
+        </button>
+        <button class="action-pill-btn" id="btn-theme-toggle" title="Aydınlık / Karanlık Tema">
+            <span id="theme-btn-icon">☀️</span>
+            <span id="theme-btn-text">Aydınlık</span>
+        </button>
+    </div>
+
+    <!-- Üst Başlık & FPS (Gizlenebilir) -->
+    <header class="ui-shell">
+        <div class="header-brand">
+            <h1>ATOM-X // Simülatör</h1>
+            <p>Aydınlık Hassas Laboratuvar Modu</p>
+        </div>
+
+        <div id="fps-hud">
+            <span class="fps-indicator" id="fps-dot"></span>
+            <span>FPS: <strong id="fps-val" style="color:var(--accent-cyan)">60</strong></span>
+            <span style="color:var(--text-muted); font-size:0.75rem;">| ms: <span id="ms-val">16.6</span></span>
+        </div>
+    </header>
+
+    <!-- Sol Kontrol Paneli (Gizlenebilir) -->
+    <aside id="left-sidebar" class="glass-panel ui-shell">
+        <div class="panel-title">Element Yapılandırıcı</div>
+
+        <button class="table-trigger-btn" id="btn-open-ptable">
+            ⚡ İnteraktif Periyodik Tablo
+        </button>
+
+        <div class="control-group" style="margin-top: 6px;">
+            <div class="control-header">
+                <span>Proton Sayısı (Z):</span>
+                <strong id="lbl-z-val" style="color:var(--accent-magenta)">6</strong>
+            </div>
+            <input type="range" id="slider-z" class="control-slider" min="1" max="118" value="6">
+        </div>
+
+        <div class="control-group">
+            <div class="control-header">
+                <span>Nötron Sayısı (N):</span>
+                <strong id="lbl-n-val" style="color:var(--accent-cyan)">6</strong>
+            </div>
+            <input type="range" id="slider-n" class="control-slider" min="0" max="178" value="6">
+        </div>
+
+        <div class="control-group">
+            <div class="control-header">
+                <span>Elektron Sayısı (e⁻):</span>
+                <strong id="lbl-e-val" style="color:var(--accent-amber)">6</strong>
+            </div>
+            <input type="range" id="slider-e" class="control-slider" min="0" max="118" value="6">
+        </div>
+
+        <div class="panel-title" style="margin-top: 6px;">Katman Görünürlüğü</div>
+
+        <div class="toggle-group">
+            <button class="btn-mode active" id="btn-toggle-orbit">Bohr Halkaları</button>
+            <button class="btn-mode active" id="btn-toggle-cloud">Kuantum Bulutu</button>
+            <button class="btn-mode active" id="btn-toggle-nucleus">Çekirdek Doku</button>
+            <button class="btn-mode active" id="btn-toggle-spin">Dönme (Spin)</button>
+        </div>
+
+        <div class="control-group" style="margin-top: 6px;">
+            <div class="control-header">
+                <span>Simülasyon Hızı:</span>
+                <strong id="lbl-speed-val">1.0x</strong>
+            </div>
+            <input type="range" id="slider-speed" class="control-slider" min="0" max="30" value="10">
+        </div>
+    </aside>
+
+    <!-- Sağ Fizik Hesaplama Paneli (Gizlenebilir) -->
+    <aside id="right-sidebar" class="glass-panel ui-shell">
+        <div class="panel-title">Nükleer & Kuantum Verileri</div>
+
+        <div class="metric-grid">
+            <div class="metric-card">
+                <span class="metric-label">Element</span>
+                <span class="metric-val" id="res-element" style="color:var(--accent-cyan)">Karbon (C)</span>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Kütle No (A)</span>
+                <span class="metric-val" id="res-mass-num">12</span>
+            </div>
+
+            <div class="metric-card">
+                <span class="metric-label">Net İyonik Yük</span>
+                <span class="metric-val" id="res-net-charge">0 e</span>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Kararlılık</span>
+                <span class="metric-val badge-stable" id="res-stability">Kararlı</span>
+            </div>
+
+            <div class="metric-card wide">
+                <span class="metric-label">Hesaplanan Kütle (u / kg)</span>
+                <span class="metric-val" id="res-mass-u" style="font-size:0.88rem;">12.000000 u</span>
+                <span style="font-size:0.72rem; color:var(--text-muted); font-family:var(--font-code);" id="res-mass-kg">1.992646 × 10⁻²⁶ kg</span>
+            </div>
+
+            <div class="metric-card wide">
+                <span class="metric-label">Bağlanma Enerjisi (SEMF Modeli)</span>
+                <span class="metric-val" id="res-binding-energy" style="color:var(--accent-amber)">92.16 MeV</span>
+                <span style="font-size:0.72rem; color:var(--text-muted); font-family:var(--font-code);">
+                    Nükleon Başına: <strong id="res-be-per-nucleon" style="color:var(--text-main)">7.68 MeV/A</strong>
+                </span>
+            </div>
+
+            <div class="metric-card wide">
+                <span class="metric-label">Kütle Kusuru (Δm)</span>
+                <span class="metric-val" id="res-mass-defect" style="font-size:0.92rem;">0.09893 u</span>
+            </div>
+
+            <div class="metric-card wide">
+                <span class="metric-label">Elektron Kabuk Dağılımı</span>
+                <span class="metric-val" id="res-shells" style="font-size:0.82rem; color:var(--accent-green)">[2, 4]</span>
+            </div>
+        </div>
+
+        <div class="panel-title" style="margin-top: 6px;">İç Kuark İçeriği</div>
+        <div class="quark-container">
+            <div class="quark-box">
+                <div style="font-size:0.68rem; color:var(--text-muted)">Yukarı Kuark (u)</div>
+                <div style="font-size:1.1rem; font-weight:700; font-family:var(--font-code); color:var(--accent-magenta)" id="res-quark-up">18</div>
+            </div>
+            <div class="quark-box">
+                <div style="font-size:0.68rem; color:var(--text-muted)">Aşağı Kuark (d)</div>
+                <div style="font-size:1.1rem; font-weight:700; font-family:var(--font-code); color:var(--accent-cyan)" id="res-quark-down">18</div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- İpucu Rozeti (Gizlenebilir) -->
+    <div class="viewport-hints ui-shell">
+        Tekerlek: Yakınlaşma (Ekran Kilitli) | Sol Tık: Döndürme | Kısayol: 'H' Menüleri Gizle
+    </div>
+
+    <!-- Periyodik Tablo Modalı -->
+    <div id="ptable-overlay">
+        <div id="ptable-modal">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h2 style="font-size:1.15rem; color:var(--accent-cyan);">Modern Periyodik Tablo</h2>
+                <button class="table-trigger-btn" id="btn-close-ptable" style="padding:4px 12px;">Kapat ✕</button>
+            </div>
+            <div id="periodic-grid"></div>
+            <div class="legend-bar">
+                <div class="legend-item"><span class="legend-color" style="background:#0077b6;"></span> Ametal</div>
+                <div class="legend-item"><span class="legend-color" style="background:#8338ec;"></span> Asil Gaz</div>
+                <div class="legend-item"><span class="legend-color" style="background:#d90429;"></span> Alkali</div>
+                <div class="legend-item"><span class="legend-color" style="background:#f77f00;"></span> Toprak Alkali</div>
+                <div class="legend-item"><span class="legend-color" style="background:#059669;"></span> Yarı Metal</div>
+                <div class="legend-item"><span class="legend-color" style="background:#eab308;"></span> Halojen</div>
+                <div class="legend-item"><span class="legend-color" style="background:#2563eb;"></span> Geçiş Metali</div>
+                <div class="legend-item"><span class="legend-color" style="background:#0d9488;"></span> Zayıf Metal</div>
+                <div class="legend-item"><span class="legend-color" style="background:#c026d3;"></span> Lantanit</div>
+                <div class="legend-item"><span class="legend-color" style="background:#e11d48;"></span> Aktinit</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SIMULATOR CORE SCRIPT -->
+    <script>
+        /* ==========================================================================
+           1. TARAYICI EKRAN KİLİTLEME (BROWSER PINCH/ZOOM & SCROLL PREVENT)
+           ========================================================================== */
+        // Safari ve dokunmatik cihazlarda iki parmakla tarayıcının büyümesini önler
+        document.addEventListener('gesturestart', (e) => e.preventDefault());
+        document.addEventListener('gesturechange', (e) => e.preventDefault());
+        document.addEventListener('gestureend', (e) => e.preventDefault());
+
+        // Yanlışlıkla sayfanın sürüklenmesini / elastik zıplamayı kilitler
+        window.addEventListener('touchmove', (e) => {
+            if (!e.target.closest('#left-sidebar') && !e.target.closest('#right-sidebar') && !e.target.closest('#ptable-modal')) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+
+        /* ==========================================================================
+           2. FİZİK VE ELEMENT VERİLERİ (CODATA + SEMF)
+           ========================================================================== */
+        const PHYSICS = {
+            m_p_u: 1.007276466,
+            m_n_u: 1.008664916,
+            u_to_kg: 1.66053906660e-27,
+            u_to_MeV: 931.494102,
+            semf: { av: 15.75, as: 17.8, ac: 0.711, aa: 23.7, ap: 11.18 },
+
+            calculateBindingEnergy: function(Z, N) {
+                const A = Z + N;
+                if (A <= 1) return 0;
+                const E_vol = this.semf.av * A;
+                const E_surf = this.semf.as * Math.pow(A, 2/3);
+                const E_coul = this.semf.ac * (Z * (Z - 1)) / Math.pow(A, 1/3);
+                const E_asym = this.semf.aa * Math.pow(A - 2 * Z, 2) / A;
+                let delta = 0;
+                if (Z % 2 === 0 && N % 2 === 0) delta = this.semf.ap / Math.sqrt(A);
+                else if (Z % 2 !== 0 && N % 2 !== 0) delta = -this.semf.ap / Math.sqrt(A);
+                return Math.max(0, E_vol - E_surf - E_coul - E_asym + delta);
+            },
+
+            calculateNuclearMass: function(Z, N) {
+                const BE = this.calculateBindingEnergy(Z, N);
+                const massConstituents = (Z * this.m_p_u) + (N * this.m_n_u);
+                return Math.max(0, massConstituents - (BE / this.u_to_MeV));
+            },
+
+            predictStability: function(Z, N) {
+                if (Z === 1 && N === 0) return { status: "Kararlı", mode: "stable" };
+                const A = Z + N;
+                const idealN = Z * (1 + 0.015 * Math.pow(A, 2/3));
+                const diff = N - idealN;
+                if (Z > 82) return { status: "Radyoaktif (Alfa/Fisyon)", mode: "decay" };
+                if (Math.abs(diff) < 1.8) return { status: "Kararlı İzotop", mode: "stable" };
+                return { status: diff > 1.8 ? "Kararsız (β⁻ Bozunumu)" : "Kararsız (β⁺ / Yakalama)", mode: "decay" };
+            },
+
+            getElectronShells: function(numElectrons) {
+                const max = [2, 8, 18, 32, 32, 18, 8];
+                const res = [];
+                let rem = numElectrons;
+                for (let cap of max) {
+                    if (rem <= 0) break;
+                    let put = Math.min(rem, cap);
+                    res.push(put);
+                    rem -= put;
+                }
+                return res.length > 0 ? res : [0];
+            }
+        };
+
+        const ELEMENTS_DATA = [
+            { z: 1, s: "H", n: "Hidrojen", a: 1.008, c: "nonmetal", col: 1, row: 1 },
+            { z: 2, s: "He", n: "Helyum", a: 4.0026, c: "noble", col: 18, row: 1 },
+            { z: 3, s: "Li", n: "Lityum", a: 6.94, c: "alkali", col: 1, row: 2 },
+            { z: 4, s: "Be", n: "Berilyum", a: 9.0122, c: "alkaline", col: 2, row: 2 },
+            { z: 5, s: "B", n: "Bor", a: 10.81, c: "metalloid", col: 13, row: 2 },
+            { z: 6, s: "C", n: "Karbon", a: 12.011, c: "nonmetal", col: 14, row: 2 },
+            { z: 7, s: "N", n: "Azot", a: 14.007, c: "nonmetal", col: 15, row: 2 },
+            { z: 8, s: "O", n: "Oksijen", a: 15.999, c: "nonmetal", col: 16, row: 2 },
+            { z: 9, s: "F", n: "Flor", a: 18.998, c: "halogen", col: 17, row: 2 },
+            { z: 10, s: "Ne", n: "Neon", a: 20.180, c: "noble", col: 18, row: 2 },
+            { z: 11, s: "Na", n: "Sodyum", a: 22.990, c: "alkali", col: 1, row: 3 },
+            { z: 12, s: "Mg", n: "Magnezyum", a: 24.305, c: "alkaline", col: 2, row: 3 },
+            { z: 13, s: "Al", n: "Alüminyum", a: 26.982, c: "post-transition", col: 13, row: 3 },
+            { z: 14, s: "Si", n: "Silisyum", a: 28.085, c: "metalloid", col: 14, row: 3 },
+            { z: 15, s: "P", n: "Fosfor", a: 30.974, c: "nonmetal", col: 15, row: 3 },
+            { z: 16, s: "S", n: "Kükürt", a: 32.06, c: "nonmetal", col: 16, row: 3 },
+            { z: 17, s: "Cl", n: "Klor", a: 35.45, c: "halogen", col: 17, row: 3 },
+            { z: 18, s: "Ar", n: "Argon", a: 39.948, c: "noble", col: 18, row: 3 },
+            { z: 26, s: "Fe", n: "Demir", a: 55.845, c: "transition", col: 8, row: 4 },
+            { z: 29, s: "Cu", n: "Bakır", a: 63.546, c: "transition", col: 11, row: 4 },
+            { z: 79, s: "Au", n: "Altın", a: 196.97, c: "transition", col: 11, row: 6 },
+            { z: 92, s: "U", n: "Uranyum", a: 238.03, c: "actinide", col: 4, row: 7 }
+        ];
+
+        /* ==========================================================================
+           3. THREE.JS 3D MOTORU (AYDINLIK MOD UYUMLU AYARLAR)
+           ========================================================================== */
+        const canvas = document.getElementById('webgl-canvas');
+        const renderer = new THREE.WebGLRenderer({
+            canvas: canvas,
+            antialias: true,
+            powerPreference: "high-performance"
+        });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setSize(window.innerWidth, window.innerHeight);
+
+        let isDarkMode = false; // Varsayılan Aydınlık Tema
+        const lightBgColor = 0xf0f3f8;
+        const darkBgColor = 0x07090e;
+
+        renderer.setClearColor(lightBgColor, 1);
+
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(lightBgColor, 0.007);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 26, 56);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.06;
+        controls.maxDistance = 220;
+        controls.minDistance = 4;
+
+        // Işıklar
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+        dirLight.position.set(20, 40, 20);
+        scene.add(dirLight);
+
+        // Katman Grupları
+        const nucleusGroup = new THREE.Group();
+        const orbitalsGroup = new THREE.Group();
+        const quantumCloudGroup = new THREE.Group();
+        scene.add(nucleusGroup);
+        scene.add(orbitalsGroup);
+        scene.add(quantumCloudGroup);
+
+        // Aydınlık Modda Net Görünen Canlı Materyaller
+        const nucleonGeo = new THREE.SphereGeometry(0.55, 16, 16);
+        const protonMat = new THREE.MeshStandardMaterial({
+            color: 0xd90429,
+            roughness: 0.3,
+            metalness: 0.4
+        });
+        const neutronMat = new THREE.MeshStandardMaterial({
+            color: 0x0077b6,
+            roughness: 0.3,
+            metalness: 0.4
+        });
+
+        const electronGeo = new THREE.SphereGeometry(0.22, 12, 12);
+        const electronMat = new THREE.MeshBasicMaterial({ color: 0xd97706 });
+
+        let orbitingElectrons = [];
+        let electronCloudPoints = null;
+        let flags = { orbitals: true, cloud: true, nucleus: true, spins: true };
+        let animSpeed = 1.0;
+
+        function generateFibonacciSphere(samples, radius) {
+            const pts = [];
+            const phi = Math.PI * (3 - Math.sqrt(5));
+            for (let i = 0; i < samples; i++) {
+                const y = 1 - (i / (samples - 1 || 1)) * 2;
+                const rAtY = Math.sqrt(1 - y * y);
+                const theta = phi * i;
+                pts.push(new THREE.Vector3(Math.cos(theta) * rAtY * radius, y * radius, Math.sin(theta) * rAtY * radius));
+            }
+            return pts;
+        }
+
+        function rebuildNucleus(Z, N) {
+            while(nucleusGroup.children.length > 0) nucleusGroup.remove(nucleusGroup.children[0]);
+            const total = Z + N;
+            if (total === 0) return;
+
+            const radius = Math.max(0.6, 1.15 * Math.cbrt(total));
+            const positions = generateFibonacciSphere(total, radius);
+
+            if (Z > 0) {
+                const pMesh = new THREE.InstancedMesh(nucleonGeo, protonMat, Z);
+                const d = new THREE.Object3D();
+                for (let i = 0; i < Z; i++) {
+                    d.position.copy(positions[i]);
+                    d.updateMatrix();
+                    pMesh.setMatrixAt(i, d.matrix);
+                }
+                pMesh.instanceMatrix.needsUpdate = true;
+                nucleusGroup.add(pMesh);
+            }
+
+            if (N > 0) {
+                const nMesh = new THREE.InstancedMesh(nucleonGeo, neutronMat, N);
+                const d = new THREE.Object3D();
+                for (let i = 0; i < N; i++) {
+                    d.position.copy(positions[Z + i]);
+                    d.updateMatrix();
+                    nMesh.setMatrixAt(i, d.matrix);
+                }
+                nMesh.instanceMatrix.needsUpdate = true;
+                nucleusGroup.add(nMesh);
+            }
+            nucleusGroup.visible = flags.nucleus;
+        }
+
+        function rebuildOrbitals(electrons) {
+            while(orbitalsGroup.children.length > 0) orbitalsGroup.remove(orbitalsGroup.children[0]);
+            orbitingElectrons = [];
+
+            const shells = PHYSICS.getElectronShells(electrons);
+            const baseR = 5.0;
+
+            shells.forEach((count, idx) => {
+                if (count === 0) return;
+                const r = baseR + (idx * 3.6);
+
+                const ringPts = [];
+                for (let j = 0; j <= 64; j++) {
+                    let th = (j / 64) * Math.PI * 2;
+                    ringPts.push(new THREE.Vector3(Math.cos(th) * r, 0, Math.sin(th) * r));
+                }
+                const ringGeo = new THREE.BufferGeometry().setFromPoints(ringPts);
+                const ringMat = new THREE.LineBasicMaterial({
+                    color: isDarkMode ? 0x00f0ff : 0x0077b6,
+                    transparent: true,
+                    opacity: isDarkMode ? 0.35 : 0.4
+                });
+                const ring = new THREE.Line(ringGeo, ringMat);
+                ring.rotation.x = idx * 0.35;
+                ring.rotation.z = idx * 0.22;
+                orbitalsGroup.add(ring);
+
+                for (let e = 0; e < count; e++) {
+                    const eMesh = new THREE.Mesh(electronGeo, electronMat);
+                    orbitalsGroup.add(eMesh);
+                    orbitingElectrons.push({
+                        mesh: eMesh,
+                        radius: r,
+                        angle: (e / count) * Math.PI * 2,
+                        speed: (2.2 / (idx + 1)) * 0.02,
+                        rotX: ring.rotation.x,
+                        rotZ: ring.rotation.z
+                    });
+                }
+            });
+            orbitalsGroup.visible = flags.orbitals;
+        }
+
+        function rebuildQuantumCloud(Z) {
+            while(quantumCloudGroup.children.length > 0) quantumCloudGroup.remove(quantumCloudGroup.children[0]);
+
+            const pCount = Math.min(4500, Math.max(900, Z * 220));
+            const positions = new Float32Array(pCount * 3);
+            const colors = new Float32Array(pCount * 3);
+
+            for (let i = 0; i < pCount; i++) {
+                const u = Math.random();
+                const r = -Math.log(1 - u) * (3.5 + Math.sqrt(Z) * 1.4);
+                const theta = Math.acos(2 * Math.random() - 1);
+                const phi = 2 * Math.PI * Math.random();
+
+                positions[i*3] = r * Math.sin(theta) * Math.cos(phi);
+                positions[i*3+1] = r * Math.sin(theta) * Math.sin(phi);
+                positions[i*3+2] = r * Math.cos(theta);
+
+                // Aydınlık modda derin kobalt mavisi/turkuaz
+                colors[i*3] = isDarkMode ? 0.0 : 0.05;
+                colors[i*3+1] = isDarkMode ? 0.9 : 0.45;
+                colors[i*3+2] = isDarkMode ? 1.0 : 0.85;
+            }
+
+            const cloudGeo = new THREE.BufferGeometry();
+            cloudGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            cloudGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const cloudMat = new THREE.PointsMaterial({
+                size: 0.24,
+                vertexColors: true,
+                transparent: true,
+                opacity: isDarkMode ? 0.35 : 0.3,
+                blending: isDarkMode ? THREE.AdditiveBlending : THREE.NormalBlending
+            });
+
+            electronCloudPoints = new THREE.Points(cloudGeo, cloudMat);
+            quantumCloudGroup.add(electronCloudPoints);
+            quantumCloudGroup.visible = flags.cloud;
+        }
+
+        /* ==========================================================================
+           4. UYGULAMA DURUMU & ARAYÜZ ETKİLEŞİMİ
+           ========================================================================== */
+        const state = { Z: 6, N: 6, E: 6 };
+
+        const ui = {
+            sliderZ: document.getElementById('slider-z'),
+            sliderN: document.getElementById('slider-n'),
+            sliderE: document.getElementById('slider-e'),
+            sliderSpeed: document.getElementById('slider-speed'),
+            lblZ: document.getElementById('lbl-z-val'),
+            lblN: document.getElementById('lbl-n-val'),
+            lblE: document.getElementById('lbl-e-val'),
+            lblSpeed: document.getElementById('lbl-speed-val'),
+            resElement: document.getElementById('res-element'),
+            resMassNum: document.getElementById('res-mass-num'),
+            resNetCharge: document.getElementById('res-net-charge'),
+            resStability: document.getElementById('res-stability'),
+            resMassU: document.getElementById('res-mass-u'),
+            resMassKg: document.getElementById('res-mass-kg'),
+            resBindingEnergy: document.getElementById('res-binding-energy'),
+            resBEPerNucleon: document.getElementById('res-be-per-nucleon'),
+            resMassDefect: document.getElementById('res-mass-defect'),
+            resShells: document.getElementById('res-shells'),
+            resQuarkUp: document.getElementById('res-quark-up'),
+            resQuarkDown: document.getElementById('res-quark-down'),
+            fpsVal: document.getElementById('fps-val'),
+            msVal: document.getElementById('ms-val'),
+            fpsDot: document.getElementById('fps-dot'),
+            modalPTable: document.getElementById('ptable-overlay'),
+            gridPTable: document.getElementById('periodic-grid'),
+            btnToggleUI: document.getElementById('btn-toggle-ui'),
+            uiBtnText: document.getElementById('ui-btn-text'),
+            uiBtnIcon: document.getElementById('ui-btn-icon'),
+            btnThemeToggle: document.getElementById('btn-theme-toggle'),
+            themeBtnIcon: document.getElementById('theme-btn-icon'),
+            themeBtnText: document.getElementById('theme-btn-text')
+        };
+
+        function updateSystem() {
+            ui.lblZ.textContent = state.Z;
+            ui.lblN.textContent = state.N;
+            ui.lblE.textContent = state.E;
+            ui.sliderZ.value = state.Z;
+            ui.sliderN.value = state.N;
+            ui.sliderE.value = state.E;
+
+            const elem = ELEMENTS_DATA.find(el => el.z === state.Z);
+            ui.resElement.textContent = elem ? `${elem.n} (${elem.s})` : `Element Z=${state.Z}`;
+
+            const A = state.Z + state.N;
+            ui.resMassNum.textContent = A;
+
+            const q = state.Z - state.E;
+            ui.resNetCharge.textContent = `${q > 0 ? '+' : ''}${q} e`;
+            ui.resNetCharge.style.color = q === 0 ? 'var(--text-main)' : (q > 0 ? 'var(--accent-magenta)' : 'var(--accent-amber)');
+
+            const BE = PHYSICS.calculateBindingEnergy(state.Z, state.N);
+            const bePerA = A > 0 ? (BE / A) : 0;
+            const massU = PHYSICS.calculateNuclearMass(state.Z, state.N);
+            const massKg = massU * PHYSICS.u_to_kg;
+            const massDefect = (state.Z * PHYSICS.m_p_u + state.N * PHYSICS.m_n_u) - massU;
+
+            ui.resBindingEnergy.textContent = `${BE.toFixed(2)} MeV`;
+            ui.resBEPerNucleon.textContent = `${bePerA.toFixed(2)} MeV/A`;
+            ui.resMassU.textContent = `${massU.toFixed(6)} u`;
+            ui.resMassKg.textContent = `${massKg.toExponential(6)} kg`;
+            ui.resMassDefect.textContent = `${Math.max(0, massDefect).toFixed(5)} u`;
+
+            const stab = PHYSICS.predictStability(state.Z, state.N);
+            ui.resStability.textContent = stab.status;
+            ui.resStability.className = 'metric-val ' + (stab.mode === 'stable' ? 'badge-stable' : 'badge-decay');
+
+            ui.resShells.textContent = `[${PHYSICS.getElectronShells(state.E).join(', ')}]`;
+
+            ui.resQuarkUp.textContent = (state.Z * 2) + state.N;
+            ui.resQuarkDown.textContent = state.Z + (state.N * 2);
+
+            rebuildNucleus(state.Z, state.N);
+            rebuildOrbitals(state.E);
+            rebuildQuantumCloud(state.Z);
+        }
+
+        /* Menü Gizle / Aç Fonksiyonu */
+        let isUIHidden = false;
+        function toggleUI() {
+            isUIHidden = !isUIHidden;
+            document.body.classList.toggle('ui-hidden', isUIHidden);
+            if (isUIHidden) {
+                ui.uiBtnText.textContent = "Menüleri Göster";
+                ui.uiBtnIcon.textContent = "👁️‍🗨️";
+                ui.btnToggleUI.classList.add('active-glow');
+            } else {
+                ui.uiBtnText.textContent = "Menüleri Gizle";
+                ui.uiBtnIcon.textContent = "👁️";
+                ui.btnToggleUI.classList.remove('active-glow');
+            }
+        }
+
+        ui.btnToggleUI.addEventListener('click', toggleUI);
+
+        // 'H' tuşu kısayolu
+        window.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT') return;
+            if (e.key === 'h' || e.key === 'H') {
+                toggleUI();
+            }
+        });
+
+        /* Tema Değiştirici (Aydınlık / Karanlık) */
+        ui.btnThemeToggle.addEventListener('click', () => {
+            isDarkMode = !isDarkMode;
+            document.body.classList.toggle('theme-dark', isDarkMode);
+
+            if (isDarkMode) {
+                ui.themeBtnIcon.textContent = "🌙";
+                ui.themeBtnText.textContent = "Karanlık";
+                renderer.setClearColor(darkBgColor, 1);
+                scene.fog.color.setHex(darkBgColor);
+            } else {
+                ui.themeBtnIcon.textContent = "☀️";
+                ui.themeBtnText.textContent = "Aydınlık";
+                renderer.setClearColor(lightBgColor, 1);
+                scene.fog.color.setHex(lightBgColor);
+            }
+            updateSystem();
+        });
+
+        /* Kontroller */
+        ui.sliderZ.addEventListener('input', (e) => {
+            state.Z = parseInt(e.target.value);
+            state.N = Math.round(state.Z * (state.Z > 20 ? 1.25 : 1.0));
+            state.E = state.Z;
+            updateSystem();
+        });
+        ui.sliderN.addEventListener('input', (e) => {
+            state.N = parseInt(e.target.value);
+            updateSystem();
+        });
+        ui.sliderE.addEventListener('input', (e) => {
+            state.E = parseInt(e.target.value);
+            updateSystem();
+        });
+        ui.sliderSpeed.addEventListener('input', (e) => {
+            animSpeed = parseFloat(e.target.value) / 10;
+            ui.lblSpeed.textContent = animSpeed.toFixed(1) + 'x';
+        });
+
+        const toggleLayer = (id, key, grp) => {
+            const btn = document.getElementById(id);
+            btn.onclick = () => {
+                flags[key] = !flags[key];
+                btn.classList.toggle('active', flags[key]);
+                grp.visible = flags[key];
+            };
+        };
+        toggleLayer('btn-toggle-orbit', 'orbitals', orbitalsGroup);
+        toggleLayer('btn-toggle-cloud', 'cloud', quantumCloudGroup);
+        toggleLayer('btn-toggle-nucleus', 'nucleus', nucleusGroup);
+
+        document.getElementById('btn-toggle-spin').onclick = function() {
+            flags.spins = !flags.spins;
+            this.classList.toggle('active', flags.spins);
+        };
+
+        /* Periyodik Tablo */
+        function initPTable() {
+            ui.gridPTable.innerHTML = '';
+            const map = {};
+            ELEMENTS_DATA.forEach(el => map[`${el.row}-${el.col}`] = el);
+
+            for (let r = 1; r <= 7; r++) {
+                for (let c = 1; c <= 18; c++) {
+                    const el = map[`${r}-${c}`];
+                    const cell = document.createElement('div');
+                    if (el) {
+                        cell.className = `element-cell cat-${el.c}`;
+                        cell.innerHTML = `
+                            <span class="cell-z">${el.z}</span>
+                            <span class="cell-symbol">${el.s}</span>
+                            <span class="cell-name">${el.n}</span>
+                        `;
+                        cell.onclick = () => {
+                            state.Z = el.z;
+                            state.N = Math.round(el.a - el.z);
+                            state.E = el.z;
+                            updateSystem();
+                            ui.modalPTable.style.display = 'none';
+                        };
+                    } else {
+                        cell.style.visibility = 'hidden';
+                    }
+                    ui.gridPTable.appendChild(cell);
+                }
+            }
+        }
+        document.getElementById('btn-open-ptable').onclick = () => ui.modalPTable.style.display = 'flex';
+        document.getElementById('btn-close-ptable').onclick = () => ui.modalPTable.style.display = 'none';
+        ui.modalPTable.onclick = (e) => { if (e.target === ui.modalPTable) ui.modalPTable.style.display = 'none'; };
+
+        /* ==========================================================================
+           5. FPS SAYACI & RENDER DÖNGÜSÜ
+           ========================================================================== */
+        let frameCount = 0;
+        let lastFpsUpdate = performance.now();
+
+        function updateFPS(now) {
+            frameCount++;
+            const delta = now - lastFpsUpdate;
+            if (delta >= 400) {
+                const fps = Math.round((frameCount * 1000) / delta);
+                ui.fpsVal.textContent = fps;
+                ui.msVal.textContent = (1000 / Math.max(1, fps)).toFixed(1);
+                frameCount = 0;
+                lastFpsUpdate = now;
+            }
+        }
+
+        function animate(timestamp) {
+            requestAnimationFrame(animate);
+            updateFPS(timestamp);
+
+            const spd = animSpeed;
+
+            if (flags.nucleus && flags.spins) {
+                nucleusGroup.rotation.y += 0.003 * spd;
+                nucleusGroup.rotation.x += 0.002 * spd;
+            }
+
+            if (flags.orbitals && orbitingElectrons.length > 0) {
+                for (let i = 0; i < orbitingElectrons.length; i++) {
+                    const e = orbitingElectrons[i];
+                    if (flags.spins) e.angle += e.speed * spd;
+                    const rx = Math.cos(e.angle) * e.radius;
+                    const rz = Math.sin(e.angle) * e.radius;
+                    e.mesh.position.set(
+                        rx * Math.cos(e.rotZ) - rz * Math.sin(e.rotZ),
+                        rx * Math.sin(e.rotX),
+                        rz * Math.cos(e.rotX)
+                    );
+                }
+            }
+
+            if (flags.cloud && electronCloudPoints && flags.spins) {
+                electronCloudPoints.rotation.y -= 0.0015 * spd;
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Başlat
+        initPTable();
+        updateSystem();
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
